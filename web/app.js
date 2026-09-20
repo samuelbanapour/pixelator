@@ -1,11 +1,13 @@
 (() => {
   const $ = (s) => document.querySelector(s);
-  const { PALETTES, quantize, smallSize } = Pixelate;
+  const { PALETTES, LOOKS, quantize, applyFx, smallSize, blockFor, rng } = Pixelate;
   const PREVIEW_MAX = 2400;
   const EXPORT_MAX_VIDEO = 1920;
 
   const el = {
     stage: $('#stage'), drop: $('#drop'), view: $('#view'), file: $('#file'), files: $('#files'),
+    look: $('#look'), strength: $('#strength'), strengthOut: $('#strengthOut'), strengthRow: $('#strengthRow'),
+    osd: $('#osd'), osdRow: $('#osdRow'),
     size: $('#size'), sizeOut: $('#sizeOut'), palette: $('#palette'), swatches: $('#swatches'),
     levels: $('#levels'), levelsOut: $('#levelsOut'), levelsRow: $('#levelsRow'),
     dither: $('#dither'), ditherOut: $('#ditherOut'), save: $('#save'), saveAll: $('#saveAll'),
@@ -20,24 +22,54 @@
 
   // ---------- settings ----------
   for (const [key, p] of Object.entries(PALETTES)) el.palette.add(new Option(p.name, key));
+  {
+    const groups = {};
+    for (const [key, l] of Object.entries(LOOKS)) {
+      const parent = l.group ? (groups[l.group] ||= el.look.appendChild(Object.assign(document.createElement('optgroup'), { label: l.group }))) : el.look;
+      parent.appendChild(new Option(l.name, key));
+    }
+  }
+  let manualSize = false; // true once the user drags Pixel size, overriding the look's resolution
+  let tick = 0; // frame counter: varies tape noise from frame to frame
 
-  const opts = () => ({
-    size: +el.size.value,
-    palette: PALETTES[el.palette.value].colors,
-    levels: +el.levels.value,
-    dither: +el.dither.value / 100,
-  });
+  // Everything render() needs. `it` (the selected item) turns a look's resolution into a block size.
+  const opts = (it, extra = {}) => {
+    const look = LOOKS[el.look.value], pal = PALETTES[el.palette.value];
+    let size = +el.size.value;
+    if (look.grid && !manualSize && it) size = blockFor(look.grid, it.w, it.h);
+    return {
+      size, palette: pal.colors, levels: pal.levels ?? +el.levels.value, dither: +el.dither.value / 100,
+      fx: look.fx || null, strength: +el.strength.value / 100, osd: el.osd.checked, t: 0, time: 0, ...extra,
+    };
+  };
+
+  function applyLook() { // copy the look's palette + dither into the controls
+    const look = LOOKS[el.look.value];
+    manualSize = false;
+    if (look.palette) el.palette.value = look.palette;
+    if (look.dither != null) el.dither.value = Math.round(look.dither * 100);
+    syncUI();
+  }
 
   function syncUI() {
-    el.sizeOut.textContent = el.size.value + ' px';
+    const it = items[sel], look = LOOKS[el.look.value], pal = PALETTES[el.palette.value];
+    const o = opts(it);
+    if (look.grid && !manualSize) el.size.value = Math.min(+el.size.max, Math.max(1, Math.round(o.size)));
+    let label = (Math.round(o.size * 10) / 10) + ' px';
+    if (it) { const [gw, gh] = smallSize(it.w, it.h, o.size); label += ` · ${gw}×${gh}`; }
+    el.sizeOut.textContent = label;
     el.levelsOut.textContent = el.levels.value;
     el.ditherOut.textContent = el.dither.value + '%';
-    const pal = PALETTES[el.palette.value].colors;
-    el.levelsRow.hidden = !!pal;
-    el.swatches.replaceChildren(...(pal || []).map((c) => Object.assign(document.createElement('i'), { style: `background:rgb(${c})` })));
+    el.strengthOut.textContent = el.strength.value + '%';
+    el.strengthRow.hidden = !look.fx || !Object.keys(look.fx).length;
+    el.osdRow.hidden = !(look.fx && look.fx.osd);
+    el.levelsRow.hidden = !!pal.colors || pal.levels != null;
+    el.swatches.replaceChildren(...(pal.colors || []).map((c) => Object.assign(document.createElement('i'), { style: `background:rgb(${c})` })));
     dirty = true;
   }
-  for (const k of ['size', 'palette', 'levels', 'dither']) el[k].addEventListener('input', syncUI);
+  el.look.addEventListener('input', applyLook);
+  el.size.addEventListener('input', () => { manualSize = true; syncUI(); });
+  for (const k of ['palette', 'levels', 'dither', 'strength', 'osd']) el[k].addEventListener('input', syncUI);
   syncUI();
 
   // ---------- rendering ----------
@@ -51,12 +83,59 @@
     sctx.imageSmoothingEnabled = true; sctx.imageSmoothingQuality = 'high';
     sctx.drawImage(src, 0, 0, sw, sh);
     const img = sctx.getImageData(0, 0, sw, sh);
+    applyFx(img.data, sw, sh, o.fx, o.strength, o.t);
     quantize(img.data, sw, sh, o);
     sctx.putImageData(img, 0, 0);
     if (out.width !== ow || out.height !== oh) { out.width = ow; out.height = oh; }
     const octx = out.getContext('2d');
     octx.imageSmoothingEnabled = false;
     octx.drawImage(small, 0, 0, sw, sh, 0, 0, sw * block, sh * block);
+    if (o.fx) post(octx, out.width, out.height, block, o);
+  }
+
+  // Effects that only make sense at output resolution: scanlines, vignette, tape glitches, OSD text.
+  function post(ctx, W, H, block, o) {
+    const fx = o.fx, s = o.strength;
+    if (!(s > 0)) return;
+    if (fx.scan && block >= 2) {
+      const th = Math.max(1, Math.round(block * 0.4));
+      ctx.fillStyle = `rgba(0,0,0,${fx.scan * s})`;
+      for (let y = 0; y < H; y += block) ctx.fillRect(0, Math.round(y + block - th), W, th);
+    }
+    if (fx.vignette) {
+      const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+      g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, `rgba(0,0,0,${fx.vignette * s})`);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    }
+    if (fx.tracking) {
+      const rand = rng(o.t + 7);
+      const bands = [{ y: H * 0.93, h: H * 0.05, amp: 5 }];
+      if (o.t % 120 < 8) bands.push({ y: H * (0.2 + 0.5 * rand()), h: H * 0.03, amp: 3 }); // now and then, a glitch mid-frame
+      for (const b of bands) {
+        const y = Math.floor(b.y), bh = Math.max(2, Math.floor(b.h)), dx = Math.round((rand() - 0.3) * b.amp * block * s);
+        ctx.drawImage(ctx.canvas, 0, y, W, bh, dx, y, W, bh);
+        for (let i = 0; i < 40; i++) {
+          ctx.fillStyle = `rgba(255,255,255,${0.15 + 0.5 * rand()})`;
+          ctx.fillRect(rand() * W, y + rand() * bh, block * (2 + rand() * 10), Math.max(1, block * 0.5));
+        }
+      }
+    }
+    if (fx.osd && o.osd) {
+      const sz = Math.round(Math.max(12, H * 0.06)), m = Math.round(sz * 0.9);
+      ctx.save();
+      ctx.font = `bold ${sz}px ui-monospace, Menlo, Consolas, monospace`;
+      ctx.textBaseline = 'top'; ctx.fillStyle = '#f4f4f4';
+      ctx.shadowColor = 'rgba(80,120,255,.9)'; ctx.shadowBlur = sz * 0.25; ctx.shadowOffsetX = sz * 0.05;
+      ctx.beginPath(); // play triangle
+      ctx.moveTo(m, m); ctx.lineTo(m, m + sz * 0.8); ctx.lineTo(m + sz * 0.7, m + sz * 0.4); ctx.closePath(); ctx.fill();
+      ctx.fillText('PLAY', m + sz * 0.95, m);
+      const secs = Math.floor(o.time || 0), tc = `SP ${Math.floor(secs / 3600)}:${String(Math.floor(secs / 60) % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+      ctx.textAlign = 'right'; ctx.fillText(tc, W - m, m);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      const d = new Date(), mon = d.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+      ctx.fillText(`${mon}. ${String(d.getDate()).padStart(2, ' ')} ${d.getFullYear()}`, m, H - m);
+      ctx.restore();
+    }
   }
 
   function frame() {
@@ -66,7 +145,9 @@
       const dpr = window.devicePixelRatio || 1;
       const target = Math.min(PREVIEW_MAX, Math.max(320, el.stage.clientWidth * dpr));
       const f = Math.min(1, target / Math.max(it.w, it.h));
-      try { render(it.el, it.w, it.h, el.view, f, opts()); } catch (e) { /* frame not ready yet */ }
+      const playing = it.kind === 'video' && !it.el.paused;
+      if (playing) tick++;
+      try { render(it.el, it.w, it.h, el.view, f, opts(it, { t: tick, time: it.kind === 'video' ? it.el.currentTime : 0 })); } catch (e) { /* frame not ready yet */ }
       // Hard pixel edges only when the canvas is enlarged; smooth when it is shrunk to fit.
       const shown = el.view.getBoundingClientRect().width * dpr;
       el.view.style.imageRendering = el.view.width > shown * 1.01 ? 'auto' : 'pixelated';
@@ -116,7 +197,7 @@
     if (autoSize) {
       const max = Math.max(4, Math.round(Math.max(it.w, it.h) / 8));
       el.size.max = max;
-      el.size.value = Math.max(2, Math.min(max, Math.round(Math.max(it.w, it.h) / 80)));
+      if (!LOOKS[el.look.value].grid) el.size.value = Math.max(2, Math.min(max, Math.round(Math.max(it.w, it.h) / 80)));
       syncUI();
     }
     el.drop.hidden = true; el.view.hidden = false; el.stage.classList.add('has');
@@ -235,6 +316,7 @@
       const tick = () => {
         if (finished) return;
         if (v.ended || v.paused) return stop();
+        o.t++; o.time = v.currentTime;
         render(v, it.w, it.h, c, f, o);
         setProgress(v.currentTime / v.duration, `Rendering ${it.file.name} — ${Math.round(100 * v.currentTime / v.duration)}%`);
         requestAnimationFrame(tick);
@@ -249,9 +331,9 @@
   async function exportItems(list) {
     if (exporting) return;
     exporting = true; el.save.disabled = el.saveAll.disabled = true;
-    const o = opts();
     try {
       for (const it of list) {
+        const o = opts(it);
         setProgress(0, 'Rendering ' + it.file.name);
         // Preview slider is tuned for the preview; export at full size uses the same block size in source pixels.
         if (it.kind === 'video') await exportVideo(it, o); else await exportImage(it, o);

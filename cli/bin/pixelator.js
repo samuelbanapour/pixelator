@@ -13,20 +13,29 @@ function findFfmpeg() {
 }
 const FFMPEG = findFfmpeg();
 
-// ---------- palettes ----------
-const hex = (l) => l.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+// ---------- palettes & looks (shared with the web app: web/pixelate.js -> lib/pixelate.js) ----------
+const shared = require('../lib/pixelate.js');
+const LOOKS = shared.LOOKS;
 const PALETTES = {
-  original: { label: 'Original colors (just pixelate)', colors: null },
+  original: { label: 'Original colors (just pixelate)' },
   auto8: { label: 'Auto - 8 colors', auto: 8 },
   auto16: { label: 'Auto - 16 colors', auto: 16 },
   auto32: { label: 'Auto - 32 colors', auto: 32 },
-  gameboy: { label: 'Game Boy', colors: hex(['#0f380f', '#306230', '#8bac0f', '#9bbc0f']) },
-  pico8: { label: 'PICO-8', colors: hex(['#000000', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8', '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffccaa']) },
-  c64: { label: 'Commodore 64', colors: hex(['#000000', '#ffffff', '#880000', '#aaffee', '#cc44cc', '#00cc55', '#0000aa', '#eeee77', '#dd8855', '#664400', '#ff7777', '#333333', '#777777', '#aaff66', '#0088ff', '#bbbbbb']) },
-  cga: { label: 'CGA', colors: hex(['#000000', '#55ffff', '#ff55ff', '#ffffff']) },
-  mono: { label: 'Black & white', colors: hex(['#000000', '#ffffff']) },
-  sunset: { label: 'Sunset', colors: hex(['#1a1423', '#372549', '#774c60', '#b75d69', '#eacdc2', '#ffb400']) },
+  ...Object.fromEntries(Object.entries(shared.PALETTES).filter(([k]) => k !== 'original')
+    .map(([k, p]) => [k, { label: p.name, colors: p.colors, levels: p.levels }])),
 };
+
+// Every color a levels-based palette can produce, when that fits in a 256-color palette image.
+function paletteColors(p) {
+  if (p.colors) return p.colors;
+  if (p.levels == null) return null;
+  const lv = Array.isArray(p.levels) ? p.levels : [p.levels, p.levels, p.levels];
+  if (lv[0] * lv[1] * lv[2] > 256) return null;
+  const out = [];
+  for (let r = 0; r < lv[0]; r++) for (let g = 0; g < lv[1]; g++) for (let b = 0; b < lv[2]; b++)
+    out.push([r * 255 / (lv[0] - 1), g * 255 / (lv[1] - 1), b * 255 / (lv[2] - 1)].map(Math.round));
+  return out;
+}
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.heif', '.avif', '.jxl', '.ico', '.tga', '.ppm', '.pgm', '.pnm', '.psd', '.exr', '.svg']);
 const ANIM_EXT = new Set(['.gif', '.apng']);
@@ -100,14 +109,85 @@ function select(title, options, start = 0) {
 }
 
 // ---------- ffmpeg pipeline ----------
-function buildFilter(N, palKey, dither, palFile) {
-  const down = `scale=w=ceil(iw/${N}):h=ceil(ih/${N}):flags=area`;
-  const up = `scale=w=iw*${N}:h=ih*${N}:flags=neighbor,crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2`;
+// Builds: downscale to the pixel grid -> look effects -> color reduction -> nearest-neighbour upscale -> CRT post.
+// The look effects are ffmpeg approximations of what the web app does per pixel.
+function buildGraph({ W, H, OW, OH, palKey, dither, look, strength, palFile }) {
+  const segs = [];
+  let cur = '0:v', n = 0;
+  const add = (f) => { const o = `t${n++}`; segs.push(`[${cur}]${f}[${o}]`); cur = o; };
+  const s = strength;
+  const fx = (look && look.fx) || {};
+  const q = (v) => Math.round(v * 1000) / 1000;
+
+  add(`scale=w=${W}:h=${H}:flags=area`);
+  if (fx.soften) add(`gblur=sigma=${q(0.5 + 0.3 * s)}:steps=1`);
+  if (fx.chroma) add(`format=yuv444p,gblur=sigma=${q(fx.chroma.radius * 0.5 * s + 0.01)}:planes=6,chromashift=crh=${Math.round(fx.chroma.shift * s)}:cbh=${Math.round(fx.chroma.shift * s)}`);
+  add('format=rgb24');
+  if (fx.grade) {
+    const g = fx.grade, mix = (v) => q(1 + ((v ?? 1) - 1) * s);
+    add(`eq=contrast=${mix(g.contrast)}:saturation=${mix(g.saturation)}:brightness=${q((g.brightness || 0) * s)}`);
+    if (g.tint) add(`colorchannelmixer=rr=${mix(g.tint[0])}:gg=${mix(g.tint[1])}:bb=${mix(g.tint[2])}`);
+    if (g.blackLift) { const l = q(g.blackLift * s); add(`lutrgb=r='val*${q((255 - l) / 255)}+${l}':g='val*${q((255 - l) / 255)}+${l}':b='val*${q((255 - l) / 255)}+${l}'`); }
+  }
+  if (fx.bloom) { // ffmpeg has no threshold-blur, so this is a soft glow (screen-blended blur)
+    const a = q(Math.min(1, fx.bloom.amount * s * 1.6));
+    segs.push(`[${cur}]split[bA${n}][bB${n}]`);
+    segs.push(`[bB${n}]gblur=sigma=${Math.max(2, Math.round(W / 60))}:steps=2[bC${n}]`);
+    segs.push(`[bA${n}][bC${n}]blend=all_mode=screen:all_opacity=${a}[t${n}]`);
+    cur = `t${n++}`;
+  }
+  if (fx.noise) add(`noise=alls=${Math.round(fx.noise * 190 * s)}:allf=t`);
+
+  // Color reduction
+  const pal = PALETTES[palKey];
   const d = dither ? 'dither=bayer:bayer_scale=3' : 'dither=none';
-  const p = PALETTES[palKey];
-  if (p.auto) return { complex: `[0:v]${down},split[a][b];[a]palettegen=max_colors=${p.auto}:stats_mode=single[pal];[b][pal]paletteuse=${d}:new=1,format=rgb24,${up}[out]`, extra: [] };
-  if (p.colors) return { complex: `[0:v]${down},format=rgb24[s];[s][1:v]paletteuse=${d},format=rgb24,${up}[out]`, extra: ['-i', palFile] };
-  return { complex: `[0:v]${down},format=rgb24,${up}[out]`, extra: [] };
+  const extra = [];
+  const colors = paletteColors(pal);
+  if (pal.auto) {
+    segs.push(`[${cur}]split[pa${n}][pb${n}]`);
+    segs.push(`[pa${n}]palettegen=max_colors=${pal.auto}:stats_mode=single[pl${n}]`);
+    segs.push(`[pb${n}][pl${n}]paletteuse=${d}:new=1[t${n}]`);
+    cur = `t${n++}`; add('format=rgb24');
+  } else if (colors) {
+    extra.push('-i', palFile);
+    segs.push(`[${cur}][1:v]paletteuse=${d}[t${n}]`);
+    cur = `t${n++}`; add('format=rgb24');
+  } else if (pal.levels != null) { // e.g. 15-bit: 32 levels per channel, with a little static noise standing in for the dither
+    const lv = Array.isArray(pal.levels) ? pal.levels : [pal.levels, pal.levels, pal.levels];
+    if (dither && lv[0] < 256) add(`noise=alls=${Math.round(255 / lv[0])}:allf=u`);
+    const ch = (c, k) => (lv[k] >= 256 ? 'val' : `round(val*${lv[k] - 1}/255)*255/${lv[k] - 1}`);
+    add(`lutrgb=r='${ch('r', 0)}':g='${ch('g', 1)}':b='${ch('b', 2)}'`);
+  }
+
+  // Upscale back to the original size with hard edges, then CRT post effects at output resolution.
+  add(`scale=w=${OW}:h=${OH}:flags=neighbor`);
+  const cell = OH / H;
+  if (fx.scan && cell >= 2) {
+    const th = Math.max(1, Math.round(cell * 0.4));
+    add(`drawgrid=y=${Math.round(cell - th)}:w=0:h=${q(cell)}:t=${th}:c=black@${q(fx.scan * s)}`);
+  }
+  if (fx.vignette) add(`vignette=angle=${q(0.55 * s + 0.05)}`);
+  add('crop=w=trunc(iw/2)*2:h=trunc(ih/2)*2');
+  segs[segs.length - 1] = segs[segs.length - 1].replace(/\[t\d+\]$/, '[out]');
+  return { complex: segs.join(';'), extra };
+}
+
+// Video size as ffmpeg will hand it to the filters (honours rotation metadata).
+function probeSize(file) {
+  return new Promise((resolve) => {
+    const p = spawn(FFMPEG, ['-hide_banner', '-i', file], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let e = '';
+    p.stderr.on('data', (b) => (e += b));
+    p.on('error', () => resolve(null));
+    p.on('close', () => {
+      const m = /Stream #\d+:\d+[^\n]*Video:[^\n]*?[, ](\d{2,5})x(\d{2,5})/.exec(e);
+      if (!m) return resolve(null);
+      let w = +m[1], h = +m[2];
+      const r = /rotation of (-?\d+)/.exec(e);
+      if (r && Math.abs(+r[1]) % 180 === 90) [w, h] = [h, w];
+      resolve([w, h]);
+    });
+  });
 }
 
 function writePalette(colors) {
@@ -142,9 +222,18 @@ async function pixelate(input, opts) {
   let out = path.join(dir, path.basename(input, path.extname(input)) + '_pixel' + ext);
   for (let n = 2; fs.existsSync(out); n++) out = path.join(dir, `${path.basename(input, path.extname(input))}_pixel${n}${ext}`);
 
-  const p = PALETTES[opts.palette];
-  const palFile = p.colors ? writePalette(p.colors) : null;
-  const { complex, extra } = buildFilter(opts.size, opts.palette, opts.dither, palFile);
+  const dims = await probeSize(input);
+  if (!dims) throw new Error("Couldn't read the picture size. Is this an image or video file?");
+  const [OW, OH] = dims;
+  const look = opts.look && opts.look !== 'none' ? LOOKS[opts.look] : null;
+  const palKey = look ? look.palette : opts.palette;
+  const dither = look ? look.dither > 0 : opts.dither;
+  let W, H;
+  if (look && look.grid) { const k = Math.min(1, look.grid / Math.max(OW, OH)); W = Math.max(1, Math.round(OW * k)); H = Math.max(1, Math.round(OH * k)); }
+  else { W = Math.max(1, Math.ceil(OW / opts.size)); H = Math.max(1, Math.ceil(OH / opts.size)); }
+  const colors = paletteColors(PALETTES[palKey]);
+  const palFile = colors ? writePalette(colors) : null;
+  const { complex, extra } = buildGraph({ W, H, OW, OH, palKey, dither, look, strength: (opts.strength ?? 100) / 100, palFile });
   const args = ['-hide_banner', '-y', '-i', input, ...extra, '-filter_complex', complex, '-map', '[out]'];
   if (kind === 'image') args.push('-frames:v', '1', '-update', '1');
   else if (kind === 'video') args.push('-map', '0:a?', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '17', '-preset', 'medium', '-c:a', 'aac', '-movflags', '+faststart');
@@ -206,13 +295,15 @@ function expand(p) {
 }
 
 function parseArgs(argv) {
-  const o = { files: [], size: null, palette: null, dither: null, outDir: null, help: false };
+  const o = { files: [], size: null, palette: null, dither: null, look: null, strength: null, outDir: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') o.help = true;
     else if (a === '-s' || a === '--size') o.size = parseInt(argv[++i], 10);
     else if (a === '-p' || a === '--palette') o.palette = argv[++i];
     else if (a === '-d' || a === '--dither') o.dither = argv[++i] !== 'none';
+    else if (a === '-l' || a === '--look') o.look = argv[++i];
+    else if (a === '--strength') o.strength = Math.max(0, Math.min(100, parseInt(argv[++i], 10)));
     else if (a === '-o' || a === '--out') o.outDir = path.resolve(argv[++i]);
     else o.files.push(a);
   }
@@ -225,12 +316,16 @@ Usage: pixelator [files or folders...] [options]
   -s, --size <px>       pixel block size (default 8)
   -p, --palette <name>  ${Object.keys(PALETTES).join(' | ')}
   -d, --dither <mode>   bayer | none   (default bayer)
+  -l, --look <name>     ${Object.keys(LOOKS).filter((k) => k !== 'none').join(' | ')}
+                        (a look sets the resolution, palette and effects; -s/-p/-d are ignored)
+      --strength <0-100>  how strong the look's effects are (default 100)
   -o, --out <dir>       output folder (default: next to the original)
 `;
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return console.log(HELP);
+  if (args.look && !LOOKS[args.look]) { console.error(`Unknown look "${args.look}".${HELP}`); process.exit(2); }
   if (args.palette && !PALETTES[args.palette]) { console.error(`Unknown palette "${args.palette}".${HELP}`); process.exit(2); }
 
   // Non-interactive
@@ -239,7 +334,7 @@ async function main() {
     if (!files.length) { console.error('No media files found.'); process.exit(1); }
     let failed = 0;
     for (const f of files) {
-      try { console.log('✔', await pixelate(f, { size: args.size || 8, palette: args.palette || 'original', dither: args.dither ?? true, outDir: args.outDir })); }
+      try { console.log('✔', await pixelate(f, { size: args.size || 8, palette: args.palette || 'original', dither: args.dither ?? true, look: args.look, strength: args.strength ?? 100, outDir: args.outDir })); }
       catch (e) { failed++; console.error('✖', f, '-', e.message); }
     }
     process.exit(failed ? 1 : 0);
@@ -253,21 +348,28 @@ async function main() {
     if (!files.length) { console.log(C(255, 95, 95, '  ✖ Nothing found at that path.\n')); continue; }
     console.log(dim(`  Found ${files.length} file${files.length > 1 ? 's' : ''}.\n`));
 
-    const sz = await select('How chunky should the pixels be?', [
-      { label: 'Huge   (32 px blocks)', v: 32 }, { label: 'Chunky (16 px blocks)', v: 16 },
-      { label: 'Medium (8 px blocks)', v: 8 }, { label: 'Fine   (4 px blocks)', v: 4 }, { label: 'Custom...', v: 0 },
-    ], 2);
-    let size = sz.v;
-    if (!size) size = Math.max(2, parseInt(await ask('Block size in pixels?', 8), 10) || 8);
+    const lookOpts = [{ label: 'Custom - I will pick the pixel size and palette', v: 'none' },
+      ...Object.entries(LOOKS).filter(([k]) => k !== 'none').map(([k, l]) => ({ label: `${l.group.padEnd(11)} ${l.name}`, v: k }))];
+    const lookKey = (await select('Choose a look', lookOpts)).v;
     console.log('');
-    const palKey = (await select('Pick a palette', Object.entries(PALETTES).map(([k, p]) => ({ label: p.label, v: k })))).v;
-    console.log('');
-    const dither = (await select('Dithering?', [{ label: 'Bayer dither (retro texture)', v: true }, { label: 'None (flat colors)', v: false }])).v;
-    console.log('');
+    let size = 8, palKey = 'original', dither = true;
+    if (lookKey === 'none') {
+      const sz = await select('How chunky should the pixels be?', [
+        { label: 'Huge   (32 px blocks)', v: 32 }, { label: 'Chunky (16 px blocks)', v: 16 },
+        { label: 'Medium (8 px blocks)', v: 8 }, { label: 'Fine   (4 px blocks)', v: 4 }, { label: 'Custom...', v: 0 },
+      ], 2);
+      size = sz.v;
+      if (!size) size = Math.max(2, parseInt(await ask('Block size in pixels?', 8), 10) || 8);
+      console.log('');
+      palKey = (await select('Pick a palette', Object.entries(PALETTES).map(([k, p]) => ({ label: p.label, v: k })))).v;
+      console.log('');
+      dither = (await select('Dithering?', [{ label: 'Bayer dither (retro texture)', v: true }, { label: 'None (flat colors)', v: false }])).v;
+      console.log('');
+    }
 
     for (const f of files) {
       try {
-        const out = await pixelate(f, { size, palette: palKey, dither });
+        const out = await pixelate(f, { size, palette: palKey, dither, look: lookKey, strength: 100 });
         console.log(`  ${C(95, 240, 208, '✔')} ${bold(path.basename(out))}  ${dim(path.dirname(out))}\n`);
         await preview(out);
         console.log('');

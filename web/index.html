@@ -34,8 +34,16 @@
   <aside class="panel">
     <div class="files" id="files"></div>
 
+    <label>Look
+      <select id="look"></select>
+    </label>
+    <label id="strengthRow" hidden>Look strength <output id="strengthOut"></output>
+      <input type="range" id="strength" min="0" max="100" value="100">
+    </label>
+    <label class="check" id="osdRow" hidden><input type="checkbox" id="osd" checked> Show tape on-screen text (PLAY, date)</label>
+
     <label>Pixel size <output id="sizeOut"></output>
-      <input type="range" id="size" min="2" max="64" value="8">
+      <input type="range" id="size" min="1" max="64" value="8">
     </label>
 
     <label>Palette

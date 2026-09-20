@@ -12,6 +12,22 @@ Turn any photo or video into pixel art. One shared engine, five front-ends.
 
 `web/` is the single source of truth. `desktop/` and `android/` copy it in (`sync.js`) at build time, so nothing drifts.
 
+## Looks
+Pick a **Look** and Pixelator sets the resolution, color depth, dithering and effects of an era in one go:
+
+| Look | Grid (long side) | Color | Extras |
+|---|---|---|---|
+| VHS tape | 360 | full | chroma bleed, tape noise, faded blacks, scanlines, tracking glitches, PLAY / date on-screen text |
+| PlayStation 1 (1994) | 320 | 15-bit, ordered dither | scanlines |
+| PlayStation 2 (2000) | 640 | full | soft focus, light bloom, scanlines |
+| Xbox (2001) | 640 | full | bloom, punchy contrast |
+| Xbox 360 (2005) | 1280 | full | heavy bloom, desaturated brown grade, vignette |
+| DOS VGA (1990) | 320 | 256 (3-3-2), dither | scanlines |
+| DOS EGA (1984) | 320 | 16 fixed, dither | scanlines |
+| Windows 95 (1995) | 640 | 216 web-safe, dither | |
+
+In the apps, the sliders stay live after choosing a look (drag Pixel size to override its resolution; **Look strength** scales the effects). The look table lives in `web/pixelate.js`; the CLI gets a copy through `node cli/sync.js` (run it after editing `web/pixelate.js`). In the CLI, `-l vhs --strength 60`. CLI effects are ffmpeg approximations of the web ones: no tracking glitches or on-screen text, and bloom is a soft glow.
+
 ## Web
 Serve `web/` from any static host, or `python3 -m http.server --directory web`.
 Photos save as PNG. Videos re-render in real time and save as WebM (MP4 on Safari); audio is kept.
@@ -22,9 +38,10 @@ Formats are whatever the browser can decode (JPG/PNG/WebP/GIF, MP4/WebM/MOV...).
 cd cli && npm install
 node bin/pixelator.js                      # interactive: drag a file/folder in, pick options with arrow keys
 node bin/pixelator.js photo.heic -s 12 -p pico8
+node bin/pixelator.js clip.mov -l vhs           # or ps1, ps2, xbox, x360, dos, ega, win95
 node bin/pixelator.js ./holiday/ -s 8 -p gameboy -d none -o ./out
 ```
-Palettes: original, auto8/16/32, gameboy, pico8, c64, cga, mono, sunset. Images -> PNG, GIF -> GIF, video -> MP4 (audio kept).
+Palettes: original, auto8/16/32, gameboy, pico8, c64, cga, ega, vga332, websafe, ps1, truecolor, mono, sunset. Images -> PNG, GIF -> GIF, video -> MP4 (audio kept).
 ffmpeg is bundled through `ffmpeg-static`; a system `ffmpeg` is the fallback.
 
 ## Desktop (Electron)

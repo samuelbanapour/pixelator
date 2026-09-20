@@ -27,6 +27,8 @@ main { display: grid; grid-template-columns: 1fr 320px; gap: 16px; max-width: 12
 .panel output { float: right; color: var(--text); }
 input[type=range] { width: 100%; accent-color: var(--accent); }
 select { background: #14111f; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px; font: inherit; }
+.panel label.check { flex-direction: row; align-items: center; gap: 8px; }
+.panel label.check input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 .swatches { display: flex; flex-wrap: wrap; gap: 3px; min-height: 14px; margin-top: -6px; }
 .swatches i { width: 14px; height: 14px; border-radius: 3px; }
 .row { display: flex; gap: 8px; }
