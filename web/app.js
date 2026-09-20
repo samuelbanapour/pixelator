@@ -1,7 +1,7 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const { PALETTES, quantize, smallSize } = Pixelate;
-  const PREVIEW_MAX = 1280;
+  const PREVIEW_MAX = 2400;
   const EXPORT_MAX_VIDEO = 1920;
 
   const el = {
@@ -62,8 +62,14 @@
   function frame() {
     const it = items[sel];
     if (it && !exporting && (dirty || (it.kind === 'video' && !it.el.paused))) {
-      const f = Math.min(1, PREVIEW_MAX / Math.max(it.w, it.h));
+      // Render at (about) the size it is displayed, so the browser never has to resize the canvas again.
+      const dpr = window.devicePixelRatio || 1;
+      const target = Math.min(PREVIEW_MAX, Math.max(320, el.stage.clientWidth * dpr));
+      const f = Math.min(1, target / Math.max(it.w, it.h));
       try { render(it.el, it.w, it.h, el.view, f, opts()); } catch (e) { /* frame not ready yet */ }
+      // Hard pixel edges only when the canvas is enlarged; smooth when it is shrunk to fit.
+      const shown = el.view.getBoundingClientRect().width * dpr;
+      el.view.style.imageRendering = el.view.width > shown * 1.01 ? 'auto' : 'pixelated';
       dirty = false;
     }
     requestAnimationFrame(frame);
