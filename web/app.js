@@ -179,11 +179,23 @@
       document.head.appendChild(sc);
     }));
   }
+  const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const blobToB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+
   async function heicToJpeg(file) {
     toast('Converting ' + file.name + '…');
+    const jpgName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    // Android app: use the platform decoder (fast and correct; the JS decoder returns garbage on old WebViews).
+    const nat = window.Capacitor?.isNativePlatform?.() && window.Capacitor.Plugins?.HeicConverter;
+    if (nat) {
+      try {
+        const r = await nat.toJpeg({ data: await blobToB64(file) });
+        return new File([b64ToBytes(r.data)], jpgName, { type: 'image/jpeg' });
+      } catch (e) { /* older Android without HEIC support: fall back to the JS decoder */ }
+    }
     let out = await (await loadHeicLib())({ blob: file, toType: 'image/jpeg', quality: 0.95 });
     if (Array.isArray(out)) out = out[0]; // multi-image HEIC: first frame
-    return new File([out], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+    return new File([out], jpgName, { type: 'image/jpeg' });
   }
 
   function load(file) {

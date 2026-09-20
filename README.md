@@ -31,7 +31,7 @@ In the apps, the sliders stay live after choosing a look (drag Pixel size to ove
 ## Web
 Serve `web/` from any static host, or `python3 -m http.server --directory web`.
 Photos save as PNG. Videos re-render in real time and save as WebM (MP4 on Safari); audio is kept.
-Formats are whatever the browser can decode (JPG/PNG/WebP/GIF, MP4/WebM/MOV...). iPhone **HEIC/HEIF** photos are converted on the fly by a bundled decoder (`web/vendor`, see `THIRD_PARTY_NOTICES.md`); MKV/AVI and other exotic video: use the CLI.
+Formats are whatever the browser can decode (JPG/PNG/WebP/GIF, MP4/WebM/MOV...). iPhone **HEIC/HEIF** photos are converted on the fly: by Android's own decoder in the Android app (`HeicConverterPlugin`), otherwise by a bundled JavaScript decoder (`web/vendor`, see `THIRD_PARTY_NOTICES.md`; it returns garbage on very old WebViews such as Android 9 tablets, which is why Android does not use it); MKV/AVI and other exotic video: use the CLI.
 
 ## CLI (handles practically every format via ffmpeg)
 ```bash
