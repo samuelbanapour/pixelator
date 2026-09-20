@@ -167,10 +167,30 @@
     clearTimeout(toast.t); toast.t = setTimeout(() => el.toast.classList.remove('show'), 3500);
   }
 
+  // HEIC/HEIF (iPhone photos) is not decodable by Chrome/Edge/Electron/Android WebView. Convert with a
+  // bundled decoder, loaded on first use. Browsers that can decode it natively never get here.
+  let heicLib;
+  function loadHeicLib() {
+    return (heicLib ||= new Promise((res, rej) => {
+      const sc = document.createElement('script');
+      sc.src = 'vendor/heic2any.min.js';
+      sc.onload = () => res(window.heic2any);
+      sc.onerror = () => { heicLib = null; rej(new Error('Could not load the HEIC decoder.')); };
+      document.head.appendChild(sc);
+    }));
+  }
+  async function heicToJpeg(file) {
+    toast('Converting ' + file.name + '…');
+    let out = await (await loadHeicLib())({ blob: file, toType: 'image/jpeg', quality: 0.95 });
+    if (Array.isArray(out)) out = out[0]; // multi-image HEIC: first frame
+    return new File([out], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  }
+
   function load(file) {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const isVideo = file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv|avi|ogv|3gp)$/i.test(file.name);
+      const isHeic = /\.(heic|heif)$/i.test(file.name) || /^image\/hei[cf]/.test(file.type);
       if (isVideo) {
         const v = document.createElement('video');
         v.muted = true; v.loop = true; v.playsInline = true; v.preload = 'auto'; v.src = url;
@@ -179,7 +199,12 @@
       } else {
         const im = new Image();
         im.onload = () => resolve({ file, url, kind: 'image', el: im, w: im.naturalWidth, h: im.naturalHeight });
-        im.onerror = () => reject(new Error("Can't decode " + file.name + ' (format not supported by this browser)'));
+        im.onerror = async () => {
+          URL.revokeObjectURL(url);
+          if (!isHeic) return reject(new Error("Can't decode " + file.name + ' (format not supported by this browser)'));
+          try { const it = await load(await heicToJpeg(file)); it.file = file; resolve(it); } // keep the original name for the chip and the saved file
+          catch (e) { reject(new Error("Can't open " + file.name + ': ' + (e.message || 'HEIC conversion failed'))); }
+        };
         im.src = url;
       }
     });

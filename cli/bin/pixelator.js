@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 // ---------- ffmpeg ----------
 function findFfmpeg() {
@@ -172,6 +172,23 @@ function buildGraph({ W, H, OW, OH, palKey, dither, look, strength, palFile }) {
   return { complex: segs.join(';'), extra };
 }
 
+// ffmpeg cannot open some photo formats (HEIC/HEIF from iPhones, sometimes AVIF). For those we
+// convert to PNG with a tool the system already has, then carry on with the PNG.
+function convertWithSystemTool(input) {
+  const base = path.join(os.tmpdir(), `pixelator-conv-${process.pid}-${Date.now()}`);
+  const tries = [];
+  if (process.platform === 'darwin') tries.push({ cmd: 'sips', out: base + '.png', args: ['-s', 'format', 'png', input, '--out', base + '.png'] });
+  tries.push({ cmd: 'magick', out: base + '.png', args: [input + '[0]', base + '.png'] });
+  tries.push({ cmd: 'heif-convert', out: base + '.jpg', args: [input, base + '.jpg'] });
+  tries.push({ cmd: 'convert', out: base + '.png', args: [input + '[0]', base + '.png'] });
+  for (const t of tries) {
+    const r = spawnSync(t.cmd, t.args, { stdio: 'ignore', timeout: 120000 });
+    if (!r.error && r.status === 0 && fs.existsSync(t.out) && fs.statSync(t.out).size > 0) return t.out;
+    fs.rmSync(t.out, { force: true });
+  }
+  return null;
+}
+
 // Video size as ffmpeg will hand it to the filters (honours rotation metadata).
 function probeSize(file) {
   return new Promise((resolve) => {
@@ -222,8 +239,18 @@ async function pixelate(input, opts) {
   let out = path.join(dir, path.basename(input, path.extname(input)) + '_pixel' + ext);
   for (let n = 2; fs.existsSync(out); n++) out = path.join(dir, `${path.basename(input, path.extname(input))}_pixel${n}${ext}`);
 
-  const dims = await probeSize(input);
-  if (!dims) throw new Error("Couldn't read the picture size. Is this an image or video file?");
+  let source = input, converted = null;
+  let dims = await probeSize(source);
+  if (!dims) { // ffmpeg can't open it: try converting with a system tool (sips, ImageMagick, heif-convert)
+    converted = convertWithSystemTool(input);
+    if (converted) { source = converted; dims = await probeSize(source); }
+  }
+  if (!dims) {
+    const heic = /\.(heic|heif|avif)$/i.test(input);
+    throw new Error(heic
+      ? "Couldn't open this HEIC/HEIF/AVIF photo. On macOS this works out of the box; on Windows/Linux install ImageMagick (magick) or libheif (heif-convert), or export the photo as JPG first."
+      : "Couldn't read the picture size. Is this an image or video file?");
+  }
   const [OW, OH] = dims;
   const look = opts.look && opts.look !== 'none' ? LOOKS[opts.look] : null;
   const palKey = look ? look.palette : opts.palette;
@@ -234,7 +261,7 @@ async function pixelate(input, opts) {
   const colors = paletteColors(PALETTES[palKey]);
   const palFile = colors ? writePalette(colors) : null;
   const { complex, extra } = buildGraph({ W, H, OW, OH, palKey, dither, look, strength: (opts.strength ?? 100) / 100, palFile });
-  const args = ['-hide_banner', '-y', '-i', input, ...extra, '-filter_complex', complex, '-map', '[out]'];
+  const args = ['-hide_banner', '-y', '-i', source, ...extra, '-filter_complex', complex, '-map', '[out]'];
   if (kind === 'image') args.push('-frames:v', '1', '-update', '1');
   else if (kind === 'video') args.push('-map', '0:a?', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '17', '-preset', 'medium', '-c:a', 'aac', '-movflags', '+faststart');
   args.push(out);
@@ -247,7 +274,7 @@ async function pixelate(input, opts) {
     process.stdout.write(`\r  ${C(255, 211, 95, frames[f++ % 10])} Pixelating ${path.basename(input)} ${C(95, 240, 208, '█'.repeat(filled))}${dim('░'.repeat(24 - filled))} ${Math.round(pct * 100)}%  `);
   }, 90) : null;
   try { await runFfmpeg(args, (v) => (pct = v)); }
-  finally { if (timer) clearInterval(timer); if (tty) process.stdout.write('\r\x1b[2K'); if (palFile) fs.rmSync(palFile, { force: true }); }
+  finally { if (timer) clearInterval(timer); if (tty) process.stdout.write('\r\x1b[2K'); if (palFile) fs.rmSync(palFile, { force: true }); if (converted) fs.rmSync(converted, { force: true }); }
   return out;
 }
 

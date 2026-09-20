@@ -31,7 +31,7 @@ In the apps, the sliders stay live after choosing a look (drag Pixel size to ove
 ## Web
 Serve `web/` from any static host, or `python3 -m http.server --directory web`.
 Photos save as PNG. Videos re-render in real time and save as WebM (MP4 on Safari); audio is kept.
-Formats are whatever the browser can decode (JPG/PNG/WebP/GIF, MP4/WebM/MOV...). HEIC/MKV/AVI: use the CLI.
+Formats are whatever the browser can decode (JPG/PNG/WebP/GIF, MP4/WebM/MOV...). iPhone **HEIC/HEIF** photos are converted on the fly by a bundled decoder (`web/vendor`, see `THIRD_PARTY_NOTICES.md`); MKV/AVI and other exotic video: use the CLI.
 
 ## CLI (handles practically every format via ffmpeg)
 ```bash
@@ -43,6 +43,7 @@ node bin/pixelator.js ./holiday/ -s 8 -p gameboy -d none -o ./out
 ```
 Palettes: original, auto8/16/32, gameboy, pico8, c64, cga, ega, vga332, websafe, ps1, truecolor, mono, sunset. Images -> PNG, GIF -> GIF, video -> MP4 (audio kept).
 ffmpeg is bundled through `ffmpeg-static`; a system `ffmpeg` is the fallback.
+ffmpeg itself cannot open HEIC/HEIF/AVIF photos, so for those the CLI first converts with a tool the system already has: `sips` (built into macOS), ImageMagick (`magick`) or `heif-convert` (libheif). Windows/Linux without those: export the photo as JPG first.
 
 ## Desktop (Electron)
 ```bash
