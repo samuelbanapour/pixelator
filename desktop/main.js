@@ -6,7 +6,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200, height: 800, minWidth: 720, minHeight: 520,
-    backgroundColor: '#14111f', title: 'Pixelator',
+    backgroundColor: '#14111f', title: 'Pixelator', icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true },
   });
   win.setMenuBarVisibility(false);

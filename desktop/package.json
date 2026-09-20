@@ -17,7 +17,8 @@
     "productName": "Pixelator",
     "files": [
       "main.js",
-      "app/**/*"
+      "app/**/*",
+      "build/icon.png"
     ],
     "directories": {
       "output": "dist"
@@ -37,7 +38,9 @@
             "universal"
           ]
         }
-      ]
+      ],
+      "identity": null,
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -49,13 +52,15 @@
           ]
         }
       ],
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Pixelator-Setup-${version}.${ext}"
-    }
+    },
+    "afterSign": "adhoc-sign.js"
   },
   "devDependencies": {
     "electron": "^33.2.0",

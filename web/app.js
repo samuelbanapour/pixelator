@@ -125,12 +125,37 @@
     renderChips();
   }
 
+  function removeItem(i) {
+    if (exporting) return toast('Wait for the export to finish first.');
+    const it = items[i];
+    if (it.kind === 'video') { it.el.pause(); it.el.removeAttribute('src'); it.el.load(); }
+    if (it.audio) it.audio.ac.close().catch(() => {});
+    URL.revokeObjectURL(it.url);
+    items.splice(i, 1);
+    if (!items.length) {
+      sel = -1;
+      el.view.hidden = true; el.drop.hidden = false; el.stage.classList.remove('has');
+      el.save.disabled = el.saveAll.disabled = true;
+      renderChips();
+    } else if (i === sel) {
+      sel = -1; // the removed item is already paused/released
+      select(Math.min(i, items.length - 1), true);
+    } else {
+      if (i < sel) sel--;
+      renderChips();
+    }
+  }
+
   function renderChips() {
     el.files.replaceChildren(...items.map((it, i) => {
       const c = document.createElement('div');
       c.className = 'chip' + (i === sel ? ' sel' : '');
-      c.innerHTML = '<b>' + (it.kind === 'video' ? '▶' : '▣') + '</b><span></span>';
+      c.innerHTML = '<b>' + (it.kind === 'video' ? '▶' : '▣') + '</b><span></span><button class="x" type="button">×</button>';
       c.querySelector('span').textContent = it.file.name;
+      const x = c.querySelector('.x');
+      x.setAttribute('aria-label', 'Remove ' + it.file.name);
+      x.title = 'Remove';
+      x.onclick = (e) => { e.stopPropagation(); removeItem(i); };
       c.onclick = () => select(i, true);
       return c;
     }));

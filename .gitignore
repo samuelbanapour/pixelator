@@ -10,3 +10,4 @@ android/android/build/
 android/android/app/build/
 android/android/app/src/main/assets/public/
 android/android/app/src/main/assets/capacitor.*.json
+pixelator-signing/

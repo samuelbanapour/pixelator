@@ -43,10 +43,18 @@ Run the mac and win builds as separate electron-builder invocations (that is all
 cd android && npm install
 npm run add              # first time only: generates android/android
 npm run apk              # debug APK  (needs Android SDK + JDK 17)
+./sign-release.sh        # release APK signed with a self-signed key (see Signing)
 ```
 Saving on Android uses Capacitor Filesystem + Share (share sheet -> Photos, Files, etc.).
 Set `sdk.dir` in `android/android/local.properties` and use JDK 17 (`JAVA_HOME`), not 25.
 
+## Icons
+`node tools/make-icons.js` regenerates every icon and the Android splash (web, desktop, all Android densities) from one pixel-art invader. No dependencies.
+
+## Signing
+- **macOS:** ad-hoc signed by `desktop/adhoc-sign.js` (an electron-builder `afterSign` hook running `codesign --sign -`). It is not notarized, so the first launch needs right-click > Open.
+- **Android:** `android/sign-release.sh` signs with a self-signed key. The keystore is created once in `../pixelator-signing/` (outside the repo, git-ignored). Keep it: Android only installs updates signed with the same key. Switching from the debug build to this one needs an uninstall first.
+- **Windows:** unsigned. Windows has no ad-hoc mode; SmartScreen will warn (More info > Run anyway). Building on macOS also cannot embed the icon into the installed `.exe`.
+
 ## Notes
-- Builds are unsigned: macOS shows a Gatekeeper prompt, Windows shows SmartScreen. Release builds need signing certs (Apple Developer ID, Windows code-signing, an Android keystore).
 - On exFAT drives macOS writes `._*` files that break Gradle/electron-builder. Build from a copy on an internal disk (`rsync -a --exclude='._*'`).
