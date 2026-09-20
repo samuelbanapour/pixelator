@@ -1,0 +1,64 @@
+{
+  "name": "pixelator-desktop",
+  "productName": "Pixelator",
+  "version": "1.0.0",
+  "description": "Turn any photo or video into pixel art",
+  "author": "Solo Apps Studio",
+  "main": "main.js",
+  "scripts": {
+    "sync": "node sync.js",
+    "start": "npm run sync && electron .",
+    "dist:mac": "npm run sync && electron-builder --mac --universal",
+    "dist:win": "npm run sync && electron-builder --win --x64 --arm64",
+    "dist": "npm run dist:mac && npm run dist:win"
+  },
+  "build": {
+    "appId": "com.soloappsstudio.pixelator",
+    "productName": "Pixelator",
+    "files": [
+      "main.js",
+      "app/**/*"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Pixelator-Setup-${version}.${ext}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

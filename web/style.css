@@ -1,0 +1,48 @@
+:root {
+  --bg: #14111f; --panel: #1e1930; --line: #34294f; --text: #f1ecff; --muted: #9b90bd;
+  --accent: #ff5fa2; --accent2: #5ff0d0; --gutter: 16px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); min-height: 100vh; }
+header { padding: 20px var(--gutter) 8px; max-width: 1200px; margin: 0 auto; }
+header p { margin: 4px 0 0; color: var(--muted); }
+.logo { display: flex; align-items: center; gap: 4px; font: 800 26px/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 3px; }
+.logo i { width: 12px; height: 12px; display: block; }
+.logo i:nth-child(1) { background: #ff5fa2; } .logo i:nth-child(2) { background: #ffd35f; }
+.logo i:nth-child(3) { background: #5ff0d0; } .logo i:nth-child(4) { background: #7d6bff; }
+.logo span { margin-left: 8px; }
+main { display: grid; grid-template-columns: 1fr 320px; gap: 16px; max-width: 1200px; margin: 0 auto; padding: 8px var(--gutter) 32px; }
+.stage { position: relative; background: var(--panel); border: 2px dashed var(--line); border-radius: 14px; min-height: 420px; display: grid; place-items: center; overflow: hidden; }
+.stage.over { border-color: var(--accent); }
+.stage.has { border-style: solid; background: repeating-conic-gradient(#191428 0 25%, #211b35 0 50%) 0 0 / 24px 24px; }
+.drop { text-align: center; padding: 24px; }
+.drop h2 { margin: 12px 0 4px; font-size: 20px; }
+.drop p { margin: 4px 0 12px; color: var(--muted); }
+.invader { width: 88px; height: 64px; margin: 0 auto; image-rendering: pixelated;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 11 8' shape-rendering='crispEdges' fill='%235ff0d0'><path d='M2 0h1v1h-1zM8 0h1v1h-1zM3 1h1v1h-1zM7 1h1v1h-1zM2 2h7v1h-7zM1 3h2v1h-2zM4 3h3v1h-3zM8 3h2v1h-2zM0 4h11v1h-11zM0 5h1v1h-1zM2 5h7v1h-7zM10 5h1v1h-1zM0 6h1v1h-1zM2 6h1v1h-1zM8 6h1v1h-1zM10 6h1v1h-1zM3 7h2v1h-2zM6 7h2v1h-2z'/></svg>") center / contain no-repeat; }
+#view { max-width: 100%; max-height: 78vh; image-rendering: pixelated; display: block; }
+.panel { background: var(--panel); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; align-self: start; }
+.panel label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.panel output { float: right; color: var(--text); }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+select { background: #14111f; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 9px; font: inherit; }
+.swatches { display: flex; flex-wrap: wrap; gap: 3px; min-height: 14px; margin-top: -6px; }
+.swatches i { width: 14px; height: 14px; border-radius: 3px; }
+.row { display: flex; gap: 8px; }
+.btn { flex: 1; background: #2b2246; color: var(--text); border: 0; border-radius: 10px; padding: 11px 16px; font: 600 14px inherit; cursor: pointer; text-align: center; display: inline-block; }
+.btn.primary { background: var(--accent); color: #220b18; }
+.btn:disabled { opacity: .4; cursor: default; }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+.files { display: flex; flex-wrap: wrap; gap: 6px; }
+.files:empty { display: none; }
+.chip { display: flex; align-items: center; gap: 6px; max-width: 100%; background: #14111f; border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.chip.sel { border-color: var(--accent2); color: var(--accent2); }
+.chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.chip b { color: var(--muted); font-weight: 400; }
+.progress { position: absolute; left: 12px; right: 12px; bottom: 12px; background: #000a; border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.progress #bar { height: 6px; width: 0; background: var(--accent2); border-radius: 3px; margin-bottom: 6px; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 40px); opacity: 0; background: #000d; padding: 10px 16px; border-radius: 10px; transition: .25s; pointer-events: none; max-width: 90vw; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+[hidden] { display: none !important; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } .stage { min-height: 300px; } }
