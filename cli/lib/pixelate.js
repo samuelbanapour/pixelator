@@ -75,7 +75,7 @@
   const clamp = (v) => (v < 0 ? 0 : v > 255 ? 255 : v);
   const lerp = (a, b, t) => a + (b - a) * t;
 
-  function nearest(r, g, b, pal) {
+  function nearestIndex(r, g, b, pal) {
     let best = 0, bd = Infinity;
     for (let i = 0; i < pal.length; i++) {
       const p = pal[i];
@@ -83,34 +83,64 @@
       const d = 0.3 * dr * dr + 0.59 * dg * dg + 0.11 * db * db;
       if (d < bd) { bd = d; best = i; }
     }
-    return pal[best];
+    return best;
+  }
+
+  // Palette lookups are cached on 6-bit RGB cells (262144 entries), filled lazily.
+  const palCache = new WeakMap();
+  // Per-channel level tables, one row per Bayer cell, keyed by levels + dither strength.
+  const levelCache = new Map();
+  function levelTables(lv, dither) {
+    const key = lv.join(',') + '|' + dither;
+    let t = levelCache.get(key);
+    if (t) return t;
+    t = lv.map((n) => {
+      const tab = new Uint8ClampedArray(16 * 256); // clamped array rounds like the pixel buffer does
+      if (n >= 256) return null;
+      const step = 255 / (Math.max(2, n) - 1);
+      for (let bi = 0; bi < 16; bi++) for (let v = 0; v < 256; v++)
+        tab[bi * 256 + v] = clamp(Math.round((v + BAYER4[bi] * dither * step) / step) * step);
+      return tab;
+    });
+    if (levelCache.size > 32) levelCache.clear();
+    levelCache.set(key, t);
+    return t;
   }
 
   // In-place. opts: { palette: [[r,g,b]...] | null, levels: n | [r,g,b] (256 = untouched), dither: 0..1 }
   function quantize(data, w, h, opts) {
     const pal = opts.palette || null;
     const lv = Array.isArray(opts.levels) ? opts.levels : [opts.levels || 8, opts.levels || 8, opts.levels || 8];
-    const levels = lv.map((n) => Math.max(2, n));
-    const step = levels.map((n) => 255 / (n - 1));
-    const skip = lv.map((n) => n >= 256);
-    if (!pal && skip[0] && skip[1] && skip[2]) return data;
     const dither = opts.dither || 0;
-    const spread = pal ? 64 : null;
+    if (pal) {
+      let cache = palCache.get(pal);
+      if (!cache) { cache = new Int16Array(262144).fill(-1); palCache.set(pal, cache); }
+      const spread = dither * 64;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (data[i + 3] < 128) continue;
+          const t = dither ? BAYER4[(y & 3) * 4 + (x & 3)] * spread : 0;
+          const r = clamp(data[i] + t) | 0, g = clamp(data[i + 1] + t) | 0, b = clamp(data[i + 2] + t) | 0;
+          const key = ((r >> 2) << 12) | ((g >> 2) << 6) | (b >> 2);
+          let idx = cache[key];
+          if (idx < 0) idx = cache[key] = nearestIndex((r & 252) + 2, (g & 252) + 2, (b & 252) + 2, pal);
+          const c = pal[idx];
+          data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2];
+        }
+      }
+      return data;
+    }
+    if (lv.every((n) => n >= 256)) return data;
+    const [tr, tg, tb] = levelTables(lv, dither);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4;
         if (data[i + 3] < 128) continue;
-        const m = dither ? BAYER4[(y & 3) * 4 + (x & 3)] * dither : 0;
-        if (pal) {
-          const t = m * spread;
-          const c = nearest(data[i] + t, data[i + 1] + t, data[i + 2] + t, pal);
-          data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2];
-        } else {
-          for (let k = 0; k < 3; k++) {
-            if (skip[k]) continue;
-            data[i + k] = clamp(Math.round((data[i + k] + m * step[k]) / step[k]) * step[k]);
-          }
-        }
+        const o = ((y & 3) * 4 + (x & 3)) * 256;
+        if (tr) data[i] = tr[o + data[i]];
+        if (tg) data[i + 1] = tg[o + data[i + 1]];
+        if (tb) data[i + 2] = tb[o + data[i + 2]];
       }
     }
     return data;
@@ -165,19 +195,19 @@
 
   // Analog tape: chroma is lower resolution than luma and offset sideways.
   function chromaBleed(d, w, h, radius, shift) {
-    const cb = new Float32Array(w), cr = new Float32Array(w), ob = new Float32Array(w), or = new Float32Array(w);
-    const yy = new Float32Array(w);
-    const r = Math.max(1, Math.round(radius)), n = 2 * r + 1;
+    const pb = new Float32Array(w + 1), pr = new Float32Array(w + 1), yy = new Float32Array(w);
+    const ob = new Float32Array(w), or = new Float32Array(w);
+    const r = Math.max(1, Math.round(radius));
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4, R = d[i], G = d[i + 1], B = d[i + 2];
         const Y = 0.299 * R + 0.587 * G + 0.114 * B;
-        yy[x] = Y; cb[x] = (B - Y) * 0.564; cr[x] = (R - Y) * 0.713;
+        yy[x] = Y; pb[x + 1] = pb[x] + (B - Y) * 0.564; pr[x + 1] = pr[x] + (R - Y) * 0.713;
       }
       for (let x = 0; x < w; x++) {
-        let sb = 0, sr = 0;
-        for (let k = -r; k <= r; k++) { const xx = Math.min(w - 1, Math.max(0, x - shift + k)); sb += cb[xx]; sr += cr[xx]; }
-        ob[x] = sb / n; or[x] = sr / n;
+        const c = Math.min(w - 1, Math.max(0, x - shift)), lo = Math.max(0, c - r), hi = Math.min(w, c + r + 1), n = hi - lo;
+        ob[x] = (pb[hi] - pb[lo]) / n;
+        or[x] = (pr[hi] - pr[lo]) / n;
       }
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4, Y = yy[x];

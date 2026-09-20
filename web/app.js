@@ -80,7 +80,7 @@
     const [sw, sh] = smallSize(ow, oh, block);
     small.width = sw; small.height = sh;
     const sctx = small.getContext('2d', { willReadFrequently: true });
-    sctx.imageSmoothingEnabled = true; sctx.imageSmoothingQuality = 'high';
+    sctx.imageSmoothingEnabled = true; sctx.imageSmoothingQuality = src.tagName === 'VIDEO' ? 'medium' : 'high'; // 'high' costs ~2x per frame
     sctx.drawImage(src, 0, 0, sw, sh);
     const img = sctx.getImageData(0, 0, sw, sh);
     applyFx(img.data, sw, sh, o.fx, o.strength, o.t);
@@ -124,16 +124,20 @@
       const sz = Math.round(Math.max(12, H * 0.06)), m = Math.round(sz * 0.9);
       ctx.save();
       ctx.font = `bold ${sz}px ui-monospace, Menlo, Consolas, monospace`;
-      ctx.textBaseline = 'top'; ctx.fillStyle = '#f4f4f4';
-      ctx.shadowColor = 'rgba(80,120,255,.9)'; ctx.shadowBlur = sz * 0.25; ctx.shadowOffsetX = sz * 0.05;
-      ctx.beginPath(); // play triangle
-      ctx.moveTo(m, m); ctx.lineTo(m, m + sz * 0.8); ctx.lineTo(m + sz * 0.7, m + sz * 0.4); ctx.closePath(); ctx.fill();
-      ctx.fillText('PLAY', m + sz * 0.95, m);
-      const secs = Math.floor(o.time || 0), tc = `SP ${Math.floor(secs / 3600)}:${String(Math.floor(secs / 60) % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
-      ctx.textAlign = 'right'; ctx.fillText(tc, W - m, m);
-      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      const d = new Date(), mon = d.toLocaleString('en-US', { month: 'short' }).toUpperCase();
-      ctx.fillText(`${mon}. ${String(d.getDate()).padStart(2, ' ')} ${d.getFullYear()}`, m, H - m);
+      ctx.textBaseline = 'top';
+      const glow = Math.max(1, Math.round(sz * 0.07)); // a bluish offset copy under the text (shadowBlur is far too slow on old devices)
+      const drawAll = (dx, fill) => {
+        ctx.fillStyle = fill;
+        ctx.beginPath(); ctx.moveTo(m + dx, m); ctx.lineTo(m + dx, m + sz * 0.8); ctx.lineTo(m + dx + sz * 0.7, m + sz * 0.4); ctx.closePath(); ctx.fill();
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText('PLAY', m + sz * 0.95 + dx, m);
+        const secs = Math.floor(o.time || 0), tc = `SP ${Math.floor(secs / 3600)}:${String(Math.floor(secs / 60) % 60).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
+        ctx.textAlign = 'right'; ctx.fillText(tc, W - m + dx, m);
+        const d = new Date(), mon = d.toLocaleString('en-US', { month: 'short' }).toUpperCase();
+        ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+        ctx.fillText(`${mon}. ${String(d.getDate()).padStart(2, ' ')} ${d.getFullYear()}`, m + dx, H - m);
+      };
+      drawAll(glow, 'rgba(90,120,255,.85)');
+      drawAll(0, '#f4f4f4');
       ctx.restore();
     }
   }
