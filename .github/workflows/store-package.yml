@@ -1,0 +1,53 @@
+# Builds the Microsoft Store packages (.appx, x64 + ARM64) on a real Windows runner.
+# Run it from the Actions tab and paste your Partner Center identity values.
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+    inputs:
+      identity_name:
+        description: "Partner Center > Product identity > Package/Identity/Name"
+        required: true
+      publisher:
+        description: "Partner Center > Product identity > Package/Identity/Publisher (CN=...)"
+        required: true
+      publisher_display_name:
+        description: "Partner Center > Product identity > Package/Properties/PublisherDisplayName"
+        required: true
+        default: "Solo Apps Studio"
+      attach_to_release:
+        description: "Also attach the packages to the v1.0.0 GitHub release"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  appx:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Build AppX (x64 + ARM64)
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm install --no-audit --no-fund
+          npm run sync
+          npx electron-builder --win appx --x64 --arm64 \
+            "-c.appx.identityName=${{ inputs.identity_name }}" \
+            "-c.appx.publisher=${{ inputs.publisher }}" \
+            "-c.appx.publisherDisplayName=${{ inputs.publisher_display_name }}"
+          ls -la dist/*.appx
+      - name: Attach to release
+        if: ${{ inputs.attach_to_release }}
+        shell: bash
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release upload v1.0.0 desktop/dist/*.appx --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pixelator-store-appx
+          path: desktop/dist/*.appx
+          retention-days: 14

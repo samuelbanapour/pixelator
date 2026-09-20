@@ -48,6 +48,9 @@ npm run apk              # debug APK  (needs Android SDK + JDK 17)
 Saving on Android uses Capacitor Filesystem + Share (share sheet -> Photos, Files, etc.).
 Set `sdk.dir` in `android/android/local.properties` and use JDK 17 (`JAVA_HOME`), not 25.
 
+## Microsoft Store
+`desktop/package.json` has an `appx` target (tiles are in `desktop/build/appx`, made by `tools/make-icons.js`). AppX cannot be built on a Mac without a Parallels Windows VM, so use the **Microsoft Store package** GitHub Actions workflow (Actions tab > Run workflow). Paste the three values from Partner Center > Product identity. It builds x64 and ARM64 `.appx` files; upload both in one Store submission. The identity values in `package.json` are placeholders, so a local build is not submittable.
+
 ## Icons
 `node tools/make-icons.js` regenerates every icon and the Android splash (web, desktop, all Android densities) from one pixel-art invader. No dependencies.
 

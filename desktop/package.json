@@ -10,7 +10,8 @@
     "start": "npm run sync && electron .",
     "dist:mac": "npm run sync && electron-builder --mac --universal",
     "dist:win": "npm run sync && electron-builder --win --x64 --arm64",
-    "dist": "npm run dist:mac && npm run dist:win"
+    "dist": "npm run dist:mac && npm run dist:win",
+    "dist:store": "npm run sync && electron-builder --win appx --x64 --arm64"
   },
   "build": {
     "appId": "com.soloappsstudio.pixelator",
@@ -60,7 +61,20 @@
       "allowToChangeInstallationDirectory": true,
       "artifactName": "Pixelator-Setup-${version}.${ext}"
     },
-    "afterSign": "adhoc-sign.js"
+    "afterSign": "adhoc-sign.js",
+    "appx": {
+      "identityName": "REPLACE_WITH_PARTNER_CENTER_PACKAGE_IDENTITY_NAME",
+      "publisher": "CN=REPLACE_WITH_PARTNER_CENTER_PUBLISHER_ID",
+      "publisherDisplayName": "Solo Apps Studio",
+      "applicationId": "Pixelator",
+      "displayName": "Pixelator",
+      "languages": [
+        "en-US"
+      ],
+      "backgroundColor": "#14111f",
+      "showNameOnTiles": false,
+      "artifactName": "Pixelator-${version}-${arch}.${ext}"
+    }
   },
   "devDependencies": {
     "electron": "^33.2.0",

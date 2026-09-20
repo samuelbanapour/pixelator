@@ -13,11 +13,12 @@ const BG_TOP = [58, 42, 107], BG_BOTTOM = [20, 17, 31];
 
 const mix = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
 
-// One sample at (u, v) in 0..1. mode: 'std' | 'round' | 'fg' | 'splash'
+// One sample at (u, v) in 0..1. mode: 'std' | 'round' | 'fg' | 'splash' | 'tile'
 function sample(u, v, mode, aspect) {
   let bg = null;
   if (mode === 'fg') bg = null;
   else if (mode === 'splash') bg = BG_BOTTOM.concat(255);
+  else if (mode === 'tile') bg = mix(BG_TOP, BG_BOTTOM, v).concat(255);
   else {
     let inside = true;
     if (mode === 'round') inside = (u - 0.5) ** 2 + (v - 0.5) ** 2 <= 0.25;
@@ -28,7 +29,7 @@ function sample(u, v, mode, aspect) {
     if (inside) bg = mix(BG_TOP, BG_BOTTOM, v).concat(255);
   }
   // Invader, sized as a fraction of the shorter side.
-  const frac = mode === 'fg' ? 0.5 : mode === 'splash' ? 0.3 : 0.62;
+  const frac = mode === 'fg' ? 0.5 : mode === 'splash' ? 0.3 : mode === 'tile' ? 0.56 : 0.62;
   const cw = (frac * Math.min(1, 1 / aspect)) / 11; // cell width in u  (square cells in pixels)
   const ch = (frac * Math.min(1, aspect)) / 11; // cell height in v
   const w = 11 * cw, h = 8 * ch;
@@ -92,6 +93,12 @@ write('web/icon-192.png', 192, 192, 'std');
 write('web/favicon-64.png', 64, 64, 'std');
 // Desktop (electron-builder turns build/icon.png into .icns and .ico)
 write('desktop/build/icon.png', 1024, 1024, 'std');
+
+// Microsoft Store (AppX/MSIX) tiles, picked up by electron-builder from build/appx
+write('desktop/build/appx/StoreLogo.png', 50, 50, 'tile');
+write('desktop/build/appx/Square44x44Logo.png', 44, 44, 'tile');
+write('desktop/build/appx/Square150x150Logo.png', 150, 150, 'tile');
+write('desktop/build/appx/Wide310x150Logo.png', 310, 150, 'tile');
 
 // Android launcher icons
 const res = path.join('android', 'android', 'app', 'src', 'main', 'res');
