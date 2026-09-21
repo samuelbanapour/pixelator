@@ -28,6 +28,11 @@ Pick a **Look** and Pixelator sets the resolution, color depth, dithering and ef
 
 In the apps, the sliders stay live after choosing a look (drag Pixel size to override its resolution; **Look strength** scales the effects). The look table lives in `web/pixelate.js`; the CLI gets a copy through `node cli/sync.js` (run it after editing `web/pixelate.js`). In the CLI, `-l vhs --strength 60`. CLI effects are ffmpeg approximations of the web ones: no tracking glitches or on-screen text, and bloom is a soft glow.
 
+## Crop and sound
+- **Crop** (photos and videos): press **Crop…**, drag the box or its handles, pick a shape (Free, Original, 1:1, 4:3, 3:2, 16:9, 9:16) and **Apply crop**. The pixelation is then computed on the cropped area and saved at that size. **Edit crop** / **Reset crop** change or remove it. Works with touch. CLI: `--crop 16:9` (centered) or `--crop x,y,w,h` in pixels.
+- **Sound** (videos): the preview plays with sound (untick **Play sound in preview** to mute it). The **Volume** slider sets the preview and the level saved in the file: 100% keeps the original, 0% saves the video without sound. If the browser cannot capture the sound, you get a message instead of a silently mute file. The CLI always keeps the original audio.
+- While a video is being saved, keep the window visible: browsers stop drawing hidden tabs. The web app pauses and resumes for you; the desktop app keeps going in the background.
+
 ## Web
 Serve `web/` from any static host, or `python3 -m http.server --directory web`.
 Photos save as PNG. Videos re-render in real time and save as WebM (MP4 on Safari); audio is kept.

@@ -7,7 +7,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1200, height: 800, minWidth: 720, minHeight: 520,
     backgroundColor: '#14111f', title: 'Pixelator', icon: path.join(__dirname, 'build', 'icon.png'),
-    webPreferences: { contextIsolation: true, sandbox: true },
+    webPreferences: { contextIsolation: true, sandbox: true, backgroundThrottling: false }, // keep saving videos while minimised
   });
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, 'app', 'index.html'));

@@ -111,7 +111,7 @@ function select(title, options, start = 0) {
 // ---------- ffmpeg pipeline ----------
 // Builds: downscale to the pixel grid -> look effects -> color reduction -> nearest-neighbour upscale -> CRT post.
 // The look effects are ffmpeg approximations of what the web app does per pixel.
-function buildGraph({ W, H, OW, OH, palKey, dither, look, strength, palFile }) {
+function buildGraph({ crop, W, H, OW, OH, palKey, dither, look, strength, palFile }) {
   const segs = [];
   let cur = '0:v', n = 0;
   const add = (f) => { const o = `t${n++}`; segs.push(`[${cur}]${f}[${o}]`); cur = o; };
@@ -119,6 +119,7 @@ function buildGraph({ W, H, OW, OH, palKey, dither, look, strength, palFile }) {
   const fx = (look && look.fx) || {};
   const q = (v) => Math.round(v * 1000) / 1000;
 
+  if (crop) add(`crop=w=${crop.w}:h=${crop.h}:x=${crop.x}:y=${crop.y}`);
   add(`scale=w=${W}:h=${H}:flags=area`);
   if (fx.soften) add(`gblur=sigma=${q(0.5 + 0.3 * s)}:steps=1`);
   if (fx.chroma) add(`format=yuv444p,gblur=sigma=${q(fx.chroma.radius * 0.5 * s + 0.01)}:planes=6,chromashift=crh=${Math.round(fx.chroma.shift * s)}:cbh=${Math.round(fx.chroma.shift * s)}`);
@@ -189,6 +190,24 @@ function convertWithSystemTool(input) {
   return null;
 }
 
+// --crop 16:9 (largest centered box of that shape) or --crop x,y,w,h (pixels).
+function parseCrop(str, W, H) {
+  let m;
+  if ((m = /^(\d+):(\d+)$/.exec(str))) {
+    const a = +m[1], b = +m[2];
+    if (!a || !b) throw new Error(`Bad crop shape "${str}".`);
+    let w = W, h = Math.round((W * b) / a);
+    if (h > H) { h = H; w = Math.round((H * a) / b); }
+    return { w, h, x: Math.floor((W - w) / 2), y: Math.floor((H - h) / 2) };
+  }
+  if ((m = /^(\d+),(\d+),(\d+),(\d+)$/.exec(str))) {
+    const [x, y, w, h] = m.slice(1).map(Number);
+    if (w < 2 || h < 2 || x + w > W || y + h > H) throw new Error(`Crop ${str} does not fit inside the ${W}x${H} picture.`);
+    return { x, y, w, h };
+  }
+  throw new Error(`Bad crop "${str}". Use a shape like 1:1 or 16:9 (centered), or x,y,w,h in pixels.`);
+}
+
 // Video size as ffmpeg will hand it to the filters (honours rotation metadata).
 function probeSize(file) {
   return new Promise((resolve) => {
@@ -251,7 +270,9 @@ async function pixelate(input, opts) {
       ? "Couldn't open this HEIC/HEIF/AVIF photo. On macOS this works out of the box; on Windows/Linux install ImageMagick (magick) or libheif (heif-convert), or export the photo as JPG first."
       : "Couldn't read the picture size. Is this an image or video file?");
   }
-  const [OW, OH] = dims;
+  let [OW, OH] = dims;
+  const crop = opts.crop ? parseCrop(opts.crop, OW, OH) : null;
+  if (crop) { OW = crop.w; OH = crop.h; }
   const look = opts.look && opts.look !== 'none' ? LOOKS[opts.look] : null;
   const palKey = look ? look.palette : opts.palette;
   const dither = look ? look.dither > 0 : opts.dither;
@@ -260,7 +281,7 @@ async function pixelate(input, opts) {
   else { W = Math.max(1, Math.ceil(OW / opts.size)); H = Math.max(1, Math.ceil(OH / opts.size)); }
   const colors = paletteColors(PALETTES[palKey]);
   const palFile = colors ? writePalette(colors) : null;
-  const { complex, extra } = buildGraph({ W, H, OW, OH, palKey, dither, look, strength: (opts.strength ?? 100) / 100, palFile });
+  const { complex, extra } = buildGraph({ crop, W, H, OW, OH, palKey, dither, look, strength: (opts.strength ?? 100) / 100, palFile });
   const args = ['-hide_banner', '-y', '-i', source, ...extra, '-filter_complex', complex, '-map', '[out]'];
   if (kind === 'image') args.push('-frames:v', '1', '-update', '1');
   else if (kind === 'video') args.push('-map', '0:a?', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '17', '-preset', 'medium', '-c:a', 'aac', '-movflags', '+faststart');
@@ -322,7 +343,7 @@ function expand(p) {
 }
 
 function parseArgs(argv) {
-  const o = { files: [], size: null, palette: null, dither: null, look: null, strength: null, outDir: null, help: false };
+  const o = { files: [], size: null, palette: null, dither: null, look: null, strength: null, crop: null, outDir: null, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') o.help = true;
@@ -330,6 +351,7 @@ function parseArgs(argv) {
     else if (a === '-p' || a === '--palette') o.palette = argv[++i];
     else if (a === '-d' || a === '--dither') o.dither = argv[++i] !== 'none';
     else if (a === '-l' || a === '--look') o.look = argv[++i];
+    else if (a === '--crop') o.crop = argv[++i];
     else if (a === '--strength') o.strength = Math.max(0, Math.min(100, parseInt(argv[++i], 10)));
     else if (a === '-o' || a === '--out') o.outDir = path.resolve(argv[++i]);
     else o.files.push(a);
@@ -346,6 +368,7 @@ Usage: pixelator [files or folders...] [options]
   -l, --look <name>     ${Object.keys(LOOKS).filter((k) => k !== 'none').join(' | ')}
                         (a look sets the resolution, palette and effects; -s/-p/-d are ignored)
       --strength <0-100>  how strong the look's effects are (default 100)
+      --crop <shape|x,y,w,h>  crop first: 1:1 or 16:9 (centered), or x,y,w,h in pixels
   -o, --out <dir>       output folder (default: next to the original)
 `;
 
@@ -361,7 +384,7 @@ async function main() {
     if (!files.length) { console.error('No media files found.'); process.exit(1); }
     let failed = 0;
     for (const f of files) {
-      try { console.log('✔', await pixelate(f, { size: args.size || 8, palette: args.palette || 'original', dither: args.dither ?? true, look: args.look, strength: args.strength ?? 100, outDir: args.outDir })); }
+      try { console.log('✔', await pixelate(f, { size: args.size || 8, palette: args.palette || 'original', dither: args.dither ?? true, look: args.look, strength: args.strength ?? 100, crop: args.crop, outDir: args.outDir })); }
       catch (e) { failed++; console.error('✖', f, '-', e.message); }
     }
     process.exit(failed ? 1 : 0);
@@ -394,9 +417,12 @@ async function main() {
       console.log('');
     }
 
+    const cropStr = await ask('Crop? (Enter to skip; a shape like 1:1 or 16:9 is centered, or give x,y,w,h in pixels)');
+    console.log('');
+
     for (const f of files) {
       try {
-        const out = await pixelate(f, { size, palette: palKey, dither, look: lookKey, strength: 100 });
+        const out = await pixelate(f, { size, palette: palKey, dither, look: lookKey, strength: 100, crop: cropStr || null });
         console.log(`  ${C(95, 240, 208, '✔')} ${bold(path.basename(out))}  ${dim(path.dirname(out))}\n`);
         await preview(out);
         console.log('');

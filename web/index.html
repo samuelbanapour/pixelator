@@ -28,11 +28,39 @@
       </div>
     </div>
     <canvas id="view" hidden></canvas>
+    <div class="crop" id="crop" hidden>
+      <div class="crop-box" id="cropBox">
+        <i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i>
+        <i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i>
+      </div>
+    </div>
+    <div class="crop-bar" id="cropBar" hidden>
+      <select id="cropAspect" aria-label="Crop shape">
+        <option value="free">Free</option><option value="orig">Original shape</option>
+        <option value="1:1">Square 1:1</option><option value="4:3">4:3</option><option value="3:2">3:2</option>
+        <option value="16:9">16:9</option><option value="9:16">9:16 (vertical)</option>
+      </select>
+      <button class="btn" id="cropCancel" type="button">Cancel</button>
+      <button class="btn primary" id="cropApply" type="button">Apply crop</button>
+    </div>
     <div class="progress" id="progress" hidden><div id="bar"></div><span id="ptext"></span></div>
   </section>
 
   <aside class="panel">
     <div class="files" id="files"></div>
+
+    <div class="row">
+      <button class="btn" id="cropBtn" type="button" disabled>Crop…</button>
+      <button class="btn" id="cropReset" type="button" hidden>Reset crop</button>
+    </div>
+
+    <div class="soundbox" id="soundBox" hidden>
+      <label class="check"><input type="checkbox" id="previewSound" checked> Play sound in preview</label>
+      <label>Volume <output id="volOut"></output>
+        <input type="range" id="vol" min="0" max="100" value="100">
+      </label>
+      <p class="hint">The volume is used in the saved video too. 0% saves it without sound.</p>
+    </div>
 
     <label>Look
       <select id="look"></select>
